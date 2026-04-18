@@ -21,23 +21,29 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r apps/api/requirements.txt
+      - run: pip install -r requirements.txt
       - run: pip install ruff mypy
-      - run: ruff check apps/api/src/
-      - run: mypy apps/api/src/ --ignore-missing-imports
+      - run: ruff check src/
+      - run: mypy src/ --ignore-missing-imports
 
   backend-tests:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r apps/api/requirements.txt
+      - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio httpx
-      - run: pytest apps/api/tests/ -v
+      - run: pytest tests/ -v
