@@ -7,6 +7,7 @@ services:
     dockerContext: ./apps/api
     plan: starter
     region: oregon
+    autoDeploy: true
     healthCheckPath: /api/v1/health
     envVars:
       - key: DATABASE_URL
@@ -45,6 +46,7 @@ services:
     dockerContext: ./apps/api
     plan: starter
     region: oregon
+    autoDeploy: true
     startCommand: python -m arq braingui_api.worker.tasks.WorkerSettings
     envVars:
       - key: DATABASE_URL
@@ -77,6 +79,7 @@ services:
     runtime: static
     buildCommand: npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm --filter @braingui/web build
     staticPublishPath: ./apps/web/dist
+    autoDeploy: true
     pullRequestPreviewsEnabled: true
     headers:
       - path: /assets/*
