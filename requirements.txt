@@ -1,3 +1,2 @@
-# This file exists to prevent Render/CI auto-detection from failing.
-# Python dependencies live in apps/api/requirements.txt (backend)
-# and spaces/tribe-inference/requirements.txt (HF Space).
+-r apps/api/requirements.txt
+-e apps/api/
