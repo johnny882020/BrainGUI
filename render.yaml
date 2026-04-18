@@ -3,15 +3,14 @@ services:
   - type: web
     name: braingui-api
     runtime: docker
-    dockerfilePath: ./apps/api/Dockerfile
-    dockerContext: ./apps/api
+    # Root Dockerfile: multi-stage — builds React frontend then embeds it in
+    # the Python image so a single service serves both the SPA and the API.
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: starter
     region: oregon
     autoDeploy: true
     healthCheckPath: /api/v1/health
-    # pythonVersion is ignored when runtime=docker but kept as a hint for
-    # manually-configured native-Python services that fall back to pip install.
-    pythonVersion: "3.11.11"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -45,12 +44,12 @@ services:
   - type: worker
     name: braingui-worker
     runtime: docker
-    dockerfilePath: ./apps/api/Dockerfile
-    dockerContext: ./apps/api
+    # Reuses the root Dockerfile (same image as API, different start command)
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: starter
     region: oregon
     autoDeploy: true
-    pythonVersion: "3.11.11"
     startCommand: python -m arq braingui_api.worker.tasks.WorkerSettings
     envVars:
       - key: DATABASE_URL
