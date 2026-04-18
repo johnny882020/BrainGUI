@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import secrets
@@ -16,6 +17,9 @@ from ..storage import generate_presigned_url
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+# Strong references to in-process background tasks so they aren't GC'd mid-run
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _job_to_response(job: Job) -> JobResponse:
@@ -58,20 +62,30 @@ async def create_job(
             status_code=503, detail="Database unavailable — check DATABASE_URL"
         ) from exc
 
+    # Try ARQ/Redis first; fall back to an in-process asyncio task if Redis is unavailable.
+    queued_via_redis = False
     try:
-        from arq import (
-            create_pool as arq_create_pool,  # lazy import to avoid redis→jwt chain in tests
-        )
+        from arq import create_pool as arq_create_pool  # lazy — avoids redis chain in tests
         from arq.connections import RedisSettings
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
         pool = await arq_create_pool(redis_settings)
         await pool.enqueue_job("process_video_job", job_id=job_id, video_url=body.videoUrl)
         await pool.close()
+        queued_via_redis = True
     except Exception as exc:
-        log.exception("Redis error enqueuing job %s", job_id)
-        raise HTTPException(status_code=503, detail="Queue unavailable — check REDIS_URL") from exc
+        log.warning(
+            "Redis unavailable for job %s (%s) — running in-process", job_id, exc
+        )
 
-    log.info("Created job %s for %s", job_id, body.videoUrl)
+    if not queued_via_redis:
+        from ..worker.tasks import process_video_job  # lazy — avoids arq worker imports
+        task = asyncio.create_task(
+            process_video_job({}, job_id=job_id, video_url=body.videoUrl)
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
+    log.info("Created job %s for %s (redis=%s)", job_id, body.videoUrl, queued_via_redis)
     return CreateJobResponse(
         id=job_id,
         shareUrl=f"{settings.app_base_url}/j/{job_id}",
@@ -103,7 +117,6 @@ async def stream_job(job_id: str, request: Request) -> StreamingResponse:
                     if isinstance(data, bytes):
                         data = data.decode()
                     yield f"data: {data}\n\n"
-                    # Stop after 'complete' or 'failed'
                     try:
                         parsed = json.loads(data)
                         if parsed.get("status") in ("complete", "failed"):
