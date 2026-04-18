@@ -26,6 +26,7 @@ export interface SSEProgressEvent {
   status: JobStatus;
   progressPct: number;
   message: string;
+  errorMessage?: string | null;
 }
 
 export interface CreateJobRequest {

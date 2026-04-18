@@ -28,6 +28,7 @@ export const useJobStore = create<JobState>((set, get) => ({
         ...current,
         status: event.status as JobStatus,
         progressPct: event.progressPct,
+        errorMessage: event.errorMessage ?? current.errorMessage,
       },
     })
   },

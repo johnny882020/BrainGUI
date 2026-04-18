@@ -43,9 +43,9 @@ export function ProcessingScreen({ job, error }: ProcessingScreenProps) {
           </div>
         </div>
 
-        {error && (
+        {(error || (job.status === 'failed' && job.errorMessage)) && (
           <div className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg p-3 mb-4">
-            {error}
+            {error ?? job.errorMessage}
           </div>
         )}
 
