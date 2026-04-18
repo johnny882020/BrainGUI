@@ -66,9 +66,8 @@ def app_client(mock_db_session, mock_job):
 
 
 class TestHealthEndpoint:
-    def test_health_returns_ok(self):
-        from braingui_api.main import create_app
-        client = TestClient(create_app())
+    def test_health_returns_ok(self, app_client):
+        client, _, _ = app_client
         response = client.get("/api/v1/health")
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}

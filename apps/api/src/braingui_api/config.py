@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,16 @@ class Settings(BaseSettings):
     # App
     app_base_url: str = "http://localhost:8000"
     cors_origins: list[str] = ["http://localhost:5173", "https://braingui.app"]
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _fix_db_url(cls, v: str) -> str:
+        """Rewrite Render's postgres:// scheme to the asyncpg driver string."""
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql://") and "+asyncpg" not in v:
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
 
 settings = Settings()
