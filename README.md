@@ -29,15 +29,20 @@ Paste a YouTube URL and watch a 3D brain surface animate frame-by-frame in sync 
 │  React 18 · Vite · TypeScript · Niivue (WebGL) · Zustand         │
 │  Recharts · Tailwind CSS v4 · React Router                       │
 └────────────────────────────┬─────────────────────────────────────┘
-                             │  REST + SSE
+                             │  REST + SSE  (same-origin)
 ┌────────────────────────────▼─────────────────────────────────────┐
-│  API  (FastAPI · SQLAlchemy async · Alembic · PostgreSQL 16)      │
-│  Worker  (ARQ · Redis 7)                                          │
+│  Single Docker container  (braingui-api on Render)                │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │  FastAPI · SQLAlchemy async · Alembic · PostgreSQL 16    │    │
+│  │  Serves React SPA at / via StaticFiles(html=True)        │    │
+│  └──────────────────────────────────────────────────────────┘    │
 │  Pipeline: yt-dlp → ffmpeg → Cloudflare R2                        │
 │           → chunk (90 s / 10 s overlap)                           │
 │           → HF Space inference                                    │
 │           → stitch (raised-cosine crossfade) → z-score            │
 │           → float16 .bin → R2 → SSE notify                        │
+│                                                                   │
+│  ARQ Worker (braingui-worker) — same Docker image, Redis queue    │
 └────────────────────────────┬─────────────────────────────────────┘
                              │  gradio_client
 ┌────────────────────────────▼─────────────────────────────────────┐
@@ -45,6 +50,8 @@ Paste a YouTube URL and watch a 3D brain surface animate frame-by-frame in sync 
 │  R2 video/audio keys in → base64 float16 predictions out         │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+The root `Dockerfile` is a **multi-stage build**: Stage 1 (Node 22) compiles the React frontend via `pnpm turbo`; Stage 2 (Python 3.11-slim) installs the API, copies the compiled `dist/` into `/app/web/dist`, and starts uvicorn. The API serves the SPA at `/` via FastAPI `StaticFiles(html=True)` — API routes registered before the mount take priority.
 
 ### Stack
 
@@ -56,7 +63,7 @@ Paste a YouTube URL and watch a 3D brain surface animate frame-by-frame in sync 
 | Storage | Cloudflare R2 — normalized videos and vertex timeseries blobs |
 | Database | PostgreSQL 16 |
 | Queue | Redis 7 (ARQ) |
-| Deploy | Render (API web service + ARQ worker + React static site) |
+| Deploy | Render Blueprint — API+SPA Docker web service, ARQ Docker worker, optional static site |
 
 ---
 
@@ -64,67 +71,68 @@ Paste a YouTube URL and watch a 3D brain surface animate frame-by-frame in sync 
 
 ```
 BrainGUI/
+├── Dockerfile                            # Multi-stage: Node → Python, embeds SPA in API image
 ├── apps/
-│   ├── api/                          # FastAPI backend
+│   ├── api/                              # FastAPI backend
 │   │   ├── src/braingui_api/
-│   │   │   ├── main.py               # FastAPI app factory + lifespan
-│   │   │   ├── config.py             # Pydantic Settings
-│   │   │   ├── database.py           # SQLAlchemy async engine + pool
-│   │   │   ├── redis_client.py       # Redis pub/sub helpers
-│   │   │   ├── storage.py            # R2 upload + presigned URLs
-│   │   │   ├── __main__.py           # `braingui` entry point (uvicorn)
-│   │   │   ├── models/job.py         # Job ORM + JobStatus enum
+│   │   │   ├── main.py                   # FastAPI app factory + lifespan + SPA mount
+│   │   │   ├── config.py                 # Pydantic Settings
+│   │   │   ├── database.py               # SQLAlchemy async engine + pool
+│   │   │   ├── redis_client.py           # Redis pub/sub helpers
+│   │   │   ├── storage.py                # R2 upload + presigned URLs
+│   │   │   ├── __main__.py               # `braingui` entry point (uvicorn)
+│   │   │   ├── models/job.py             # Job ORM + JobStatus StrEnum
 │   │   │   ├── routers/
-│   │   │   │   ├── health.py         # GET /api/v1/health
-│   │   │   │   └── jobs.py           # CRUD + SSE stream + vertex URL
-│   │   │   ├── schemas/job.py        # Pydantic request/response models
+│   │   │   │   ├── health.py             # GET /api/v1/health
+│   │   │   │   └── jobs.py               # CRUD + SSE stream + vertex URL
+│   │   │   ├── schemas/job.py            # Pydantic request/response models
 │   │   │   ├── services/
-│   │   │   │   ├── ingest.py         # yt-dlp + ffmpeg pipeline
-│   │   │   │   ├── inference.py      # gradio_client HF Space wrapper
-│   │   │   │   └── stitch.py         # crossfade + z-score + .bin writer
-│   │   │   └── worker/tasks.py       # ARQ background task
+│   │   │   │   ├── ingest.py             # yt-dlp + ffmpeg pipeline
+│   │   │   │   ├── inference.py          # gradio_client HF Space wrapper
+│   │   │   │   └── stitch.py             # crossfade + z-score + .bin writer
+│   │   │   └── worker/tasks.py           # ARQ background task
 │   │   ├── tests/
-│   │   │   ├── test_api.py           # 6 API integration tests
-│   │   │   └── test_stitch.py        # 14 stitch/chunk unit tests
-│   │   ├── alembic/                  # DB migrations
-│   │   ├── requirements.txt          # Pinned Python deps
-│   │   ├── Dockerfile                # python:3.11-slim + ffmpeg
+│   │   │   ├── test_api.py               # 6 API integration tests
+│   │   │   └── test_stitch.py            # 14 stitch/chunk unit tests
+│   │   ├── alembic/                      # DB migrations (auto-run on deploy)
+│   │   ├── requirements.txt              # Pinned Python deps (includes aiofiles)
+│   │   ├── Dockerfile                    # API-only image (local dev / workers)
 │   │   └── alembic.ini
-│   └── web/                          # React frontend
+│   └── web/                              # React frontend
 │       ├── src/
 │       │   ├── components/
-│       │   │   ├── brain/            # Niivue canvas + useNiivue hook
-│       │   │   ├── layout/           # AppShell, TopBar, panes
-│       │   │   ├── timeline/         # Scrubber + RegionChart
-│       │   │   ├── parcels/          # ParcelPanel (HCP atlas labels)
-│       │   │   ├── video/            # VideoPlayer sync
-│       │   │   └── ui/               # LandingPage, forms, processing screen
+│       │   │   ├── brain/                # Niivue canvas + useNiivue hook
+│       │   │   ├── layout/               # AppShell, TopBar, panes, ViewerPage
+│       │   │   ├── timeline/             # Scrubber + RegionChart
+│       │   │   ├── parcels/              # ParcelPanel (HCP atlas labels)
+│       │   │   ├── video/                # VideoPlayer sync
+│       │   │   └── ui/                   # LandingPage, forms, processing screen
 │       │   ├── hooks/
-│       │   │   ├── useJobSSE.ts      # SSE subscription → jobStore
-│       │   │   └── useVertexData.ts  # Fetch + decode .bin → brainStore
-│       │   ├── stores/               # Zustand: playback, brain, job
+│       │   │   ├── useJobSSE.ts          # SSE subscription → jobStore
+│       │   │   └── useVertexData.ts      # Fetch + decode .bin → brainStore
+│       │   ├── stores/                   # Zustand: playback, brain, job
 │       │   └── lib/
-│       │       ├── api.ts            # Typed fetch client (AbortSignal)
-│       │       ├── constants.ts      # N_VERTICES, chunk sizes, hem. offset
-│       │       ├── decodeFloat16.ts  # Float16 binary decoder
-│       │       └── parcels.ts        # HCP Glasser parcel definitions
-│       └── public/assets/            # fsaverage5 lh/rh .surf.gii meshes
+│       │       ├── api.ts                # Typed fetch client (AbortSignal)
+│       │       ├── constants.ts          # N_VERTICES, chunk sizes, hem. offset
+│       │       ├── decodeFloat16.ts      # Float16 binary decoder
+│       │       └── parcels.ts            # HCP Glasser parcel definitions
+│       └── public/assets/               # fsaverage5 lh/rh .surf.gii meshes
 ├── packages/
-│   └── types/src/index.ts            # Shared TS types (Job, SSEProgressEvent…)
+│   └── types/src/index.ts               # Shared TS types (Job, SSEProgressEvent…)
 ├── spaces/
-│   └── tribe-inference/              # HF ZeroGPU Space
-│       ├── app.py                    # Gradio endpoint + @spaces.GPU
-│       ├── utils.py                  # R2 download, ffmpeg trim, base64 encode
-│       └── test_utils.py             # 3 utility unit tests
+│   └── tribe-inference/                 # HF ZeroGPU Space
+│       ├── app.py                        # Gradio endpoint + @spaces.GPU
+│       ├── utils.py                      # R2 download, ffmpeg trim, base64 encode
+│       └── test_utils.py                 # 3 utility unit tests
 ├── infra/
-│   └── docker-compose.yml            # Local PostgreSQL 16 + Redis 7
-├── .github/workflows/ci.yml          # Three-job CI pipeline
-├── render.yaml                       # Render Blueprint (3 services)
-├── runtime.txt                       # Python 3.11.11 (Render)
-├── requirements.txt                  # Root: installs API deps + package
+│   └── docker-compose.yml               # Local PostgreSQL 16 + Redis 7
+├── .github/workflows/ci.yml             # Three-job CI pipeline
+├── render.yaml                          # Render Blueprint (3 services)
+├── .python-version                      # 3.11.11 (pyenv / Render)
+├── requirements.txt                     # Root: installs API deps for local dev
 ├── pnpm-workspace.yaml
 ├── turbo.json
-├── .nvmrc                            # Node.js 22
+├── .nvmrc                               # Node.js 22
 └── .env.example
 ```
 
@@ -132,7 +140,7 @@ BrainGUI/
 
 ## Binary Wire Format
 
-Vertex timeseries stored as a compact binary blob:
+Vertex timeseries stored as a compact binary blob in Cloudflare R2:
 
 ```
 [ uint32 T_total ][ uint32 n_vertices=20484 ][ T × 20484 × float16  (row-major) ]
@@ -191,7 +199,7 @@ cd apps/api && python -m arq braingui_api.worker.tasks.WorkerSettings
 
 ### 6 — Deploy the HF Inference Space
 
-Push `spaces/tribe-inference/` to a Hugging Face Space with `hardware: zero-gpu`. Set these Space Secrets:
+Push `spaces/tribe-inference/` to a Hugging Face Space with `hardware: zero-gpu`. Set these Space Secrets (see `spaces/tribe-inference/README.md`):
 
 ```
 R2_ENDPOINT_URL  R2_ACCESS_KEY_ID  R2_SECRET_ACCESS_KEY  R2_BUCKET_NAME
@@ -226,25 +234,22 @@ Three jobs run in parallel on every push to `main` and every pull request:
 | **backend** | pip install → `ruff check src/` → `mypy src/` |
 | **backend-tests** | pip install → `pytest tests/ -v` (20 tests) |
 
-### Render (auto-deploy)
+### Render Blueprint (`render.yaml`)
 
-Three services defined in `render.yaml`, all with `autoDeploy: true`:
+Three services, all with `autoDeploy: true`:
 
-| Service | Type | Build | Start |
-|---|---|---|---|
-| `braingui-api` | Docker web service | `apps/api/Dockerfile` | `uvicorn braingui_api.main:app …` |
-| `braingui-worker` | Docker worker | same Dockerfile | `python -m arq braingui_api.worker.tasks.WorkerSettings` |
-| `braingui-web` | Static site | `pnpm turbo run build --filter=@braingui/web` | CDN-served SPA |
+| Service | Type | Dockerfile | Start command | Notes |
+|---|---|---|---|---|
+| `braingui-api` | Docker web service | `./Dockerfile` (repo root) | `uvicorn braingui_api.main:app …` | Serves API + React SPA; `preDeployCommand: alembic upgrade head` runs migrations before each deploy |
+| `braingui-worker` | Docker worker | `./Dockerfile` (repo root) | `python -m arq braingui_api.worker.tasks.WorkerSettings` | Same image, different command |
+| `braingui-web` | Static site | pnpm + Turbo | CDN | Optional — useful for PR preview deployments; the API already serves the SPA |
 
-**To deploy via Blueprint (first time):**
+**First-time deployment:**
 
 1. Render dashboard → **New → Blueprint Instance**
 2. Connect `johnny882020/BrainGUI`, branch `main`
 3. Add secrets: `R2_*`, `HF_SPACE_URL`, `HF_TOKEN`, `APP_BASE_URL`
-
-**For manually-configured services** (fallback — render.yaml ignored):
-
-Render auto-detects Python, runs `pip install -r requirements.txt` (which installs all API deps plus the `braingui` entry point via `apps/api/`), then calls `braingui` — which starts uvicorn on `$PORT`. Pin Python to 3.11 via `runtime.txt`.
+4. Render runs `alembic upgrade head` automatically before the first (and every subsequent) deploy
 
 ---
 
@@ -255,9 +260,9 @@ Render auto-detects Python, runs `pip install -r requirements.txt` (which instal
 - [ ] `DATABASE_URL` and `REDIS_URL` set on `braingui-api` and `braingui-worker`
 - [ ] `R2_ENDPOINT_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL` set on both services
 - [ ] `HF_SPACE_URL` and `HF_TOKEN` set on `braingui-worker`
-- [ ] `APP_BASE_URL` set to your Render web URL
+- [ ] `APP_BASE_URL` set to your Render web URL (e.g. `https://braingui-api.onrender.com`)
 - [ ] HF Space deployed to ZeroGPU hardware with R2 secrets set
-- [ ] First deploy: run `alembic upgrade head` (one-time via Render shell or pre-deploy hook)
+- [ ] Render Blueprint instance created from `main` branch (migrations run automatically via `preDeployCommand`)
 
 ---
 
@@ -265,18 +270,18 @@ Render auto-detects Python, runs `pip install -r requirements.txt` (which instal
 
 | Variable | Service | Description |
 |---|---|---|
-| `DATABASE_URL` | api, worker | `postgresql+asyncpg://...` |
+| `DATABASE_URL` | api, worker | `postgresql+asyncpg://...` (Render injects `postgres://`; env.py rewrites automatically) |
 | `REDIS_URL` | api, worker | `redis://...` |
 | `R2_ENDPOINT_URL` | api, worker | Cloudflare R2 endpoint |
 | `R2_ACCESS_KEY_ID` | api, worker | R2 access key |
 | `R2_SECRET_ACCESS_KEY` | api, worker | R2 secret key |
 | `R2_BUCKET_NAME` | api, worker | Default: `braingui` |
-| `R2_PUBLIC_BASE_URL` | api, worker | Public CDN base URL |
+| `R2_PUBLIC_BASE_URL` | api, worker | Public CDN base URL for direct asset links |
 | `HF_SPACE_URL` | worker | Hugging Face Space URL |
 | `HF_TOKEN` | worker | HF API token |
-| `APP_BASE_URL` | api | Used in shareable job URLs |
-| `CORS_ORIGINS` | api | JSON array of allowed origins |
-| `VITE_API_BASE` | web (build) | API base URL injected at build time |
+| `APP_BASE_URL` | api | Used to construct shareable job URLs |
+| `CORS_ORIGINS` | api | JSON array of allowed origins (e.g. `["https://braingui.app"]`). `*.onrender.com` is always allowed via regex. |
+| `VITE_API_BASE` | web (build) | API base URL injected at build time. Leave empty when frontend is bundled in the API image (same-origin). |
 
 ---
 
