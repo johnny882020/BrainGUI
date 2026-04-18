@@ -5,8 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Database
-    database_url: str = "postgresql+asyncpg://braingui:braingui_dev@localhost:5432/braingui"
+    # Database — defaults to SQLite so the app starts without any external DB setup.
+    # Set DATABASE_URL=postgres://... (Render) or postgresql+asyncpg://... (local) for PostgreSQL.
+    database_url: str = "sqlite+aiosqlite:///./braingui.db"
 
     # Redis
     redis_url: str = "redis://localhost:6379"

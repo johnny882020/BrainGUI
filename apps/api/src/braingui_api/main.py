@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
+from .database import init_db
 from .routers import health, jobs
 
 _LOGGING: dict = {
@@ -39,7 +40,12 @@ _WEB_DIST = Path("/app/web/dist")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logging.config.dictConfig(_LOGGING)
-    log.info("BrainGUI API starting (frontend bundled=%s)", _WEB_DIST.exists())
+    await init_db()
+    log.info(
+        "BrainGUI API starting (db=%s frontend=%s)",
+        settings.database_url.split("://")[0],
+        _WEB_DIST.exists(),
+    )
     yield
     log.info("BrainGUI API shutting down")
     from .redis_client import close_redis
