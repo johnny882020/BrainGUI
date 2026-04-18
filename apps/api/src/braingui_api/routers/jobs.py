@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..database import get_session
+from ..database import async_session_factory, get_session
 from ..models.job import Job, JobStatus
 from ..redis_client import get_redis
 from ..schemas.job import CreateJobRequest, CreateJobResponse, JobResponse, VertexUrlResponse
@@ -102,9 +102,9 @@ async def get_job(job_id: str, session: AsyncSession = Depends(get_session)) -> 
 
 @router.get("/{job_id}/stream")
 async def stream_job(job_id: str, request: Request) -> StreamingResponse:
-    """SSE endpoint for real-time job progress."""
+    """SSE endpoint — uses Redis pub/sub when available, falls back to DB polling."""
 
-    async def event_generator() -> AsyncGenerator[str, None]:
+    async def _redis_stream() -> AsyncGenerator[str, None]:
         redis = get_redis()
         pubsub = redis.pubsub()
         await pubsub.subscribe(f"job:{job_id}:progress")
@@ -118,24 +118,53 @@ async def stream_job(job_id: str, request: Request) -> StreamingResponse:
                         data = data.decode()
                     yield f"data: {data}\n\n"
                     try:
-                        parsed = json.loads(data)
-                        if parsed.get("status") in ("complete", "failed"):
+                        if json.loads(data).get("status") in ("complete", "failed"):
                             break
                     except Exception:
                         pass
-        except Exception:
-            log.exception("SSE stream error for job %s", job_id)
         finally:
             await pubsub.unsubscribe(f"job:{job_id}:progress")
             await pubsub.close()
 
+    async def _db_poll_stream() -> AsyncGenerator[str, None]:
+        """Poll the database every second and emit an event on any change."""
+        last_pct, last_status = -1, ""
+        while True:
+            if await request.is_disconnected():
+                break
+            async with async_session_factory() as session:
+                job = await session.get(Job, job_id)
+            if job:
+                pct = job.progress_pct
+                status = str(job.status)
+                if pct != last_pct or status != last_status:
+                    payload = json.dumps({
+                        "jobId": job_id,
+                        "progressPct": pct,
+                        "status": status,
+                        "message": job.error_message or status,
+                        "errorMessage": job.error_message,
+                    })
+                    yield f"data: {payload}\n\n"
+                    last_pct, last_status = pct, status
+                    if status in ("complete", "failed"):
+                        break
+            await asyncio.sleep(1)
+
+    # Try pinging Redis; fall back to DB polling if unavailable
+    use_redis = False
+    try:
+        await asyncio.wait_for(get_redis().ping(), timeout=2.0)
+        use_redis = True
+    except Exception:
+        log.info("Redis unavailable — using DB polling for SSE on job %s", job_id)
+
+    generator = _redis_stream() if use_redis else _db_poll_stream()
+
     return StreamingResponse(
-        event_generator(),
+        generator,
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

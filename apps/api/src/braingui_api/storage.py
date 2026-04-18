@@ -12,6 +12,11 @@ log = logging.getLogger(__name__)
 
 
 def _get_client() -> boto3.client:
+    if not settings.r2_endpoint_url:
+        raise RuntimeError(
+            "R2 storage not configured — set R2_ENDPOINT_URL, R2_ACCESS_KEY_ID, "
+            "R2_SECRET_ACCESS_KEY in environment variables"
+        )
     return boto3.client(
         "s3",
         endpoint_url=settings.r2_endpoint_url,

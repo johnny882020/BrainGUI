@@ -32,11 +32,14 @@ async def download_and_normalize(
     raw_template = str(work_dir / "raw_video.%(ext)s")
     ydl_opts = [
         "yt-dlp",
-        "--format", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/best[height<=720]",
+        "--format",
+        "bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/best[height<=720]/best",
         "--merge-output-format", "mp4",
         "--output", raw_template,
         "--no-playlist",
-        "--quiet",
+        "--socket-timeout", "60",
+        # Use TV/mobile clients — less aggressively blocked on cloud IPs
+        "--extractor-args", "youtube:player_client=tv,mweb",
         video_url,
     ]
 
