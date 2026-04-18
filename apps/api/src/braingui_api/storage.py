@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import boto3
@@ -44,5 +44,5 @@ async def upload_to_r2(local_path: Path, key: str) -> str:
 async def generate_presigned_url(key: str, expires_in: int = 900) -> tuple[str, str]:
     loop = asyncio.get_running_loop()
     url = await loop.run_in_executor(None, _presign_sync, key, expires_in)
-    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+    expires_at = (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat()
     return url, expires_at

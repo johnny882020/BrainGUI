@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 N_VERTICES = 20484
 
 

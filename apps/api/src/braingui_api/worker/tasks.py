@@ -8,8 +8,8 @@ from ..config import settings
 from ..database import async_session_factory
 from ..models.job import Job, JobStatus
 from ..redis_client import publish_progress
-from ..services.ingest import compute_chunks, download_and_normalize
 from ..services.inference import run_tribe_inference
+from ..services.ingest import compute_chunks, download_and_normalize
 from ..services.stitch import stitch_chunks_to_bin
 from ..storage import upload_to_r2
 
