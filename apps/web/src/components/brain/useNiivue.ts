@@ -6,6 +6,14 @@ export interface UseNiivueOptions {
   onMeshNodeClick?: (meshId: string, nodeIndex: number) => void
 }
 
+// Niivue's runtime API is broader than its published TypeScript types.
+// We use this narrow cast only for the two methods that are under-typed.
+type NiivueRuntime = {
+  onMeshNodeClick: (meshId: string, nodeIndex: number) => void
+  setMeshProperty: (meshIndex: number, key: string, val: unknown) => void
+  setMeshLayerProperty: (meshIndex: number, layer: number, key: string, val: unknown) => void
+}
+
 export function useNiivue(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   opts?: UseNiivueOptions,
@@ -34,8 +42,9 @@ export function useNiivue(
       opts?.onReady?.(nv)
     })
 
-    nv.onMeshNodeClick = (meshId: string, nodeIndex: number) => {
-      opts?.onMeshNodeClick?.(meshId, nodeIndex)
+    if (opts?.onMeshNodeClick) {
+      const cb = opts.onMeshNodeClick
+      ;(nv as unknown as NiivueRuntime).onMeshNodeClick = (meshId, nodeIndex) => cb(meshId, nodeIndex)
     }
 
     return () => {
@@ -47,10 +56,9 @@ export function useNiivue(
   const setFrame = useCallback((frameIndex: number) => {
     const nv = nvRef.current
     if (!nv || !nv.meshes || nv.meshes.length === 0) return
-    nv.meshes.forEach((mesh) => {
-      if (mesh.layers && mesh.layers.length > 0) {
-        nv.setMeshLayerProperty(mesh.id, 0, 'frame4D', frameIndex)
-      }
+    const rt = nv as unknown as NiivueRuntime
+    nv.meshes.forEach((_, i) => {
+      rt.setMeshLayerProperty(i, 0, 'frame4D', frameIndex)
     })
     nv.updateGLVolume()
   }, [])
@@ -61,8 +69,9 @@ export function useNiivue(
     const lhSize = 10242
     const lhVals = values.slice(0, lhSize)
     const rhVals = values.slice(lhSize, lhSize * 2)
-    nv.meshes.forEach((mesh, i) => {
-      nv.setMeshProperty(mesh.id, 'vals', i === 0 ? lhVals : rhVals)
+    const rt = nv as unknown as NiivueRuntime
+    nv.meshes.forEach((_, i) => {
+      rt.setMeshProperty(i, 'vals', i === 0 ? lhVals : rhVals)
     })
     nv.updateGLVolume()
   }, [])
@@ -70,10 +79,11 @@ export function useNiivue(
   const setColormap = useCallback((colormap: string, calMin: number, calMax: number) => {
     const nv = nvRef.current
     if (!nv || !nv.meshes) return
-    nv.meshes.forEach((mesh) => {
-      nv.setMeshProperty(mesh.id, 'colormap', colormap)
-      nv.setMeshProperty(mesh.id, 'cal_min', calMin)
-      nv.setMeshProperty(mesh.id, 'cal_max', calMax)
+    const rt = nv as unknown as NiivueRuntime
+    nv.meshes.forEach((_, i) => {
+      rt.setMeshProperty(i, 'colormap', colormap)
+      rt.setMeshProperty(i, 'cal_min', calMin)
+      rt.setMeshProperty(i, 'cal_max', calMax)
     })
     nv.updateGLVolume()
   }, [])

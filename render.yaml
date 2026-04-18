@@ -77,7 +77,7 @@ services:
   - type: web
     name: braingui-web
     runtime: static
-    buildCommand: npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm --filter @braingui/web build
+    buildCommand: npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm turbo run build --filter=@braingui/web
     staticPublishPath: ./apps/web/dist
     autoDeploy: true
     pullRequestPreviewsEnabled: true

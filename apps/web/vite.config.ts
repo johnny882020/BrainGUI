@@ -6,7 +6,10 @@ import path from 'path'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@braingui/types': path.resolve(__dirname, '../../packages/types/src/index.ts'),
+    },
   },
   server: {
     proxy: {
