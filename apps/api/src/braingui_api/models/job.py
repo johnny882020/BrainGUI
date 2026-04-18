@@ -1,7 +1,8 @@
-import enum
 from datetime import datetime
+from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum as SAEnum, Float, Integer, String, Text
+from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -10,7 +11,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(StrEnum):
     queued = "queued"
     downloading = "downloading"
     processing = "processing"

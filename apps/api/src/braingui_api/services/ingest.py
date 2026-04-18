@@ -23,7 +23,10 @@ async def download_and_normalize(
     work_dir: Path,
     progress_cb: Callable[[int, str, str], Awaitable[None]],
 ) -> tuple[Path, Path, str, float, bool, bool]:
-    """Download and normalize video. Returns (video_path, audio_path, sha256, duration_sec, has_audio, has_speech)."""
+    """Download and normalize video.
+
+    Returns (video_path, audio_path, sha256, duration_sec, has_audio, has_speech).
+    """
     await progress_cb(5, "downloading", "Starting download")
 
     raw_template = str(work_dir / "raw_video.%(ext)s")
@@ -85,7 +88,10 @@ async def download_and_normalize(
     duration_sec = float(json.loads(fmt_result.stdout)["format"]["duration"])
 
     sha256 = hashlib.sha256(norm_video.read_bytes()).hexdigest()
-    log.info("Ingest complete: duration=%.1fs has_audio=%s has_speech=%s sha256=%.8s", duration_sec, has_audio, has_speech, sha256)
+    log.info(
+        "Ingest complete: duration=%.1fs has_audio=%s has_speech=%s sha256=%.8s",
+        duration_sec, has_audio, has_speech, sha256,
+    )
     return norm_video, norm_audio, sha256, duration_sec, has_audio, has_speech
 
 
@@ -102,7 +108,9 @@ def _detect_speech(audio_path: Path) -> bool:
         return False
 
 
-def compute_chunks(duration_sec: float, window: int = 90, overlap: int = 10) -> list[tuple[float, float]]:
+def compute_chunks(
+    duration_sec: float, window: int = 90, overlap: int = 10
+) -> list[tuple[float, float]]:
     chunks: list[tuple[float, float]] = []
     start = 0.0
     while start < duration_sec:
