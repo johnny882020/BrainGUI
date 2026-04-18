@@ -11,24 +11,26 @@ export function useVertexData(jobId: string | undefined, isComplete: boolean) {
   useEffect(() => {
     if (!jobId || !isComplete) return
 
-    let cancelled = false
+    const controller = new AbortController()
+    const { signal } = controller
 
     async function load() {
       try {
-        const { url } = await api.get<VertexUrlResponse>(`/api/v1/jobs/${jobId}/vertex-url`)
-        const res = await fetch(url)
+        const { url } = await api.get<VertexUrlResponse>(`/api/v1/jobs/${jobId}/vertex-url`, { signal })
+        const res = await fetch(url, { signal })
         if (!res.ok) throw new Error(`Failed to fetch vertex data: ${res.status}`)
         const buffer = await res.arrayBuffer()
-        if (cancelled) return
+        if (signal.aborted) return
         const { header, data } = parseVertexBin(buffer)
         setVertexBuffer(data, header.totalFrames)
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        if (signal.aborted) return
+        setError(err instanceof Error ? err.message : String(err))
       }
     }
 
     void load()
-    return () => { cancelled = true }
+    return () => controller.abort()
   }, [jobId, isComplete, setVertexBuffer])
 
   return { error }

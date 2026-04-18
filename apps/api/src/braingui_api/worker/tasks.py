@@ -1,3 +1,4 @@
+import logging
 import tempfile
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from ..services.inference import run_tribe_inference
 from ..services.stitch import stitch_chunks_to_bin
 from ..storage import upload_to_r2
 
+log = logging.getLogger(__name__)
+
 
 async def _update_job(job_id: str, **kwargs) -> None:
     async with async_session_factory() as session:
@@ -25,6 +28,7 @@ async def _update_job(job_id: str, **kwargs) -> None:
 
 async def process_video_job(ctx: dict, *, job_id: str, video_url: str) -> None:
     """ARQ background task: full processing pipeline for one job."""
+    log.info("Starting job %s for %s", job_id, video_url)
 
     async def progress(pct: int, status: str, message: str) -> None:
         await _update_job(job_id, status=JobStatus(status), progress_pct=pct)
@@ -83,8 +87,10 @@ async def process_video_job(ctx: dict, *, job_id: str, video_url: str) -> None:
                 vertex_blob_key=blob_key,
             )
             await publish_progress(job_id, 100, "complete", "Done")
+            log.info("Job %s complete", job_id)
 
     except Exception as exc:
+        log.exception("Job %s failed", job_id)
         await _update_job(job_id, status=JobStatus.failed, error_message=str(exc))
         await publish_progress(job_id, -1, "failed", f"Failed: {exc}")
         raise

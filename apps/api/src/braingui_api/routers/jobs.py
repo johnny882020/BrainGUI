@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from collections.abc import AsyncGenerator
 
@@ -13,6 +14,7 @@ from ..redis_client import get_redis
 from ..schemas.job import CreateJobRequest, CreateJobResponse, JobResponse, VertexUrlResponse
 from ..storage import generate_presigned_url
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
@@ -57,6 +59,7 @@ async def create_job(
     await pool.enqueue_job("process_video_job", job_id=job_id, video_url=body.videoUrl)
     await pool.close()
 
+    log.info("Created job %s for %s", job_id, body.videoUrl)
     return CreateJobResponse(
         id=job_id,
         shareUrl=f"{settings.app_base_url}/j/{job_id}",
@@ -95,6 +98,8 @@ async def stream_job(job_id: str, request: Request) -> StreamingResponse:
                             break
                     except Exception:
                         pass
+        except Exception:
+            log.exception("SSE stream error for job %s", job_id)
         finally:
             await pubsub.unsubscribe(f"job:{job_id}:progress")
             await pubsub.close()

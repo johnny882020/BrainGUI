@@ -1,12 +1,14 @@
 import asyncio
 import base64
 import json
+import logging
 
 import numpy as np
 
 from ..config import settings
 from .stitch import N_VERTICES
 
+log = logging.getLogger(__name__)
 _client = None
 
 
@@ -27,7 +29,8 @@ async def run_tribe_inference(
     end_sec: float,
 ) -> dict:
     """Call HF Space predict_chunk endpoint, return dict with vertex_data list."""
-    loop = asyncio.get_event_loop()
+    log.info("Inference chunk %d: %.1f–%.1f sec", chunk_index, start_sec, end_sec)
+    loop = asyncio.get_running_loop()
 
     def _call() -> str:
         client = _get_gradio_client()

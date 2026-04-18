@@ -4,8 +4,7 @@ import { usePlaybackStore } from '@/stores/playbackStore'
 import { useBrainStore } from '@/stores/brainStore'
 import { useJobStore } from '@/stores/jobStore'
 import { getFrameSlice } from '@/lib/decodeFloat16'
-
-const N_VERTICES = 20484
+import { N_VERTICES } from '@/lib/constants'
 
 export function BrainViewer() {
   const canvasRef = useRef<HTMLCanvasElement>(null)

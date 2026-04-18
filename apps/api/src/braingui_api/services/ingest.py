@@ -1,9 +1,12 @@
 import asyncio
 import hashlib
 import json
+import logging
 import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -34,7 +37,8 @@ async def download_and_normalize(
         video_url,
     ]
 
-    loop = asyncio.get_event_loop()
+    log.info("Downloading %s", video_url)
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, lambda: _run(ydl_opts))
     await progress_cb(25, "processing", "Download complete, normalizing")
 
@@ -81,6 +85,7 @@ async def download_and_normalize(
     duration_sec = float(json.loads(fmt_result.stdout)["format"]["duration"])
 
     sha256 = hashlib.sha256(norm_video.read_bytes()).hexdigest()
+    log.info("Ingest complete: duration=%.1fs has_audio=%s has_speech=%s sha256=%.8s", duration_sec, has_audio, has_speech, sha256)
     return norm_video, norm_audio, sha256, duration_sec, has_audio, has_speech
 
 

@@ -14,6 +14,9 @@ export function useJobSSE(jobId: string | undefined) {
       try {
         const event = JSON.parse(e.data as string) as SSEProgressEvent
         updateJobProgress(event)
+        if (event.status === 'complete' || event.status === 'failed') {
+          es.close()
+        }
       } catch {
         // ignore malformed events
       }

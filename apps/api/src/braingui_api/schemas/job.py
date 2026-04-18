@@ -1,12 +1,24 @@
 from datetime import datetime
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, field_validator
 
 from ..models.job import JobStatus
 
 
 class CreateJobRequest(BaseModel):
     videoUrl: str
+
+    @field_validator("videoUrl")
+    @classmethod
+    def validate_video_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("videoUrl must not be empty")
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("videoUrl must start with http:// or https://")
+        if len(v) > 2048:
+            raise ValueError("videoUrl exceeds maximum length")
+        return v
 
 
 class JobResponse(BaseModel):

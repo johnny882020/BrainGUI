@@ -1,8 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { usePlaybackStore } from '@/stores/playbackStore'
 import { useBrainStore } from '@/stores/brainStore'
-
-const N_VERTICES = 20484
+import { N_VERTICES } from '@/lib/constants'
 
 function formatTime(sec: number) {
   const m = Math.floor(sec / 60)
