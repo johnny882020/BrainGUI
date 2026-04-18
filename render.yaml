@@ -11,6 +11,8 @@ services:
     region: oregon
     autoDeploy: true
     healthCheckPath: /api/v1/health
+    # Run database migrations before each deploy
+    preDeployCommand: "alembic upgrade head"
     envVars:
       - key: DATABASE_URL
         fromDatabase:

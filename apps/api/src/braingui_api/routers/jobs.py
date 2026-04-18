@@ -49,15 +49,27 @@ async def create_job(
         has_audio=True,
         has_speech=True,
     )
-    session.add(job)
-    await session.commit()
+    try:
+        session.add(job)
+        await session.commit()
+    except Exception as exc:
+        log.exception("Database error creating job %s", job_id)
+        raise HTTPException(
+            status_code=503, detail="Database unavailable — check DATABASE_URL"
+        ) from exc
 
-    from arq import create_pool as arq_create_pool  # lazy import to avoid redis→jwt chain in tests
-    from arq.connections import RedisSettings
-    redis_settings = RedisSettings.from_dsn(settings.redis_url)
-    pool = await arq_create_pool(redis_settings)
-    await pool.enqueue_job("process_video_job", job_id=job_id, video_url=body.videoUrl)
-    await pool.close()
+    try:
+        from arq import (
+            create_pool as arq_create_pool,  # lazy import to avoid redis→jwt chain in tests
+        )
+        from arq.connections import RedisSettings
+        redis_settings = RedisSettings.from_dsn(settings.redis_url)
+        pool = await arq_create_pool(redis_settings)
+        await pool.enqueue_job("process_video_job", job_id=job_id, video_url=body.videoUrl)
+        await pool.close()
+    except Exception as exc:
+        log.exception("Redis error enqueuing job %s", job_id)
+        raise HTTPException(status_code=503, detail="Queue unavailable — check REDIS_URL") from exc
 
     log.info("Created job %s for %s", job_id, body.videoUrl)
     return CreateJobResponse(
