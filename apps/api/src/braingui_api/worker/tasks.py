@@ -1,13 +1,16 @@
 import tempfile
 from pathlib import Path
 
+from arq.connections import RedisSettings
+
+from ..config import settings
 from ..database import async_session_factory
 from ..models.job import Job, JobStatus
 from ..redis_client import publish_progress
 from ..services.ingest import compute_chunks, download_and_normalize
 from ..services.inference import run_tribe_inference
 from ..services.stitch import stitch_chunks_to_bin
-from ..storage import generate_presigned_url, upload_to_r2
+from ..storage import upload_to_r2
 
 
 async def _update_job(job_id: str, **kwargs) -> None:
@@ -89,10 +92,4 @@ async def process_video_job(ctx: dict, *, job_id: str, video_url: str) -> None:
 
 class WorkerSettings:
     functions = [process_video_job]
-    redis_settings = None  # set at runtime from config
-
-    @classmethod
-    def get_settings(cls, redis_url: str):
-        from arq.connections import RedisSettings
-        cls.redis_settings = RedisSettings.from_dsn(redis_url)
-        return cls
+    redis_settings = RedisSettings.from_dsn(settings.redis_url)

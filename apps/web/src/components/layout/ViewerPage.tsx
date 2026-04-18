@@ -31,5 +31,5 @@ export function ViewerPage() {
     return <ProcessingScreen job={currentJob} error={error} />
   }
 
-  return <AppShell videoUrl={currentJob.vertexBlobUrl} />
+  return <AppShell videoUrl={currentJob.videoUrl} />
 }

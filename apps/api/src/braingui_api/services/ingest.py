@@ -6,6 +6,15 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 
+def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+    """Run a subprocess and raise RuntimeError with stderr on failure."""
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
+        raise RuntimeError(f"Command {cmd[0]} failed: {stderr}") from exc
+
+
 async def download_and_normalize(
     video_url: str,
     work_dir: Path,
@@ -26,7 +35,7 @@ async def download_and_normalize(
     ]
 
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, lambda: subprocess.run(ydl_opts, check=True, capture_output=True))
+    await loop.run_in_executor(None, lambda: _run(ydl_opts))
     await progress_cb(25, "processing", "Download complete, normalizing")
 
     raw_files = list(work_dir.glob("raw_video.*"))
@@ -35,22 +44,18 @@ async def download_and_normalize(
     raw_file = raw_files[0]
 
     norm_video = work_dir / "video_720p.mp4"
-    subprocess.run(
-        [
-            "ffmpeg", "-i", str(raw_file), "-y",
-            "-vf", "scale=iw*min(1\\,min(1280/iw\\,720/ih)):-2",
-            "-c:v", "libx264", "-crf", "23", "-preset", "fast",
-            "-c:a", "copy",
-            str(norm_video),
-        ],
-        check=True, capture_output=True,
-    )
+    _run([
+        "ffmpeg", "-i", str(raw_file), "-y",
+        "-vf", "scale=iw*min(1\\,min(1280/iw\\,720/ih)):-2",
+        "-c:v", "libx264", "-crf", "23", "-preset", "fast",
+        "-c:a", "copy",
+        str(norm_video),
+    ])
     await progress_cb(40, "processing", "Video normalized")
 
     # Probe for audio stream
-    probe_result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", str(norm_video)],
-        capture_output=True, text=True, check=True,
+    probe_result = _run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", str(norm_video)]
     )
     streams = json.loads(probe_result.stdout).get("streams", [])
     has_audio = any(s["codec_type"] == "audio" for s in streams)
@@ -58,14 +63,11 @@ async def download_and_normalize(
     norm_audio = work_dir / "audio_16k.wav"
     has_speech = False
     if has_audio:
-        subprocess.run(
-            [
-                "ffmpeg", "-i", str(norm_video), "-y",
-                "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-                str(norm_audio),
-            ],
-            check=True, capture_output=True,
-        )
+        _run([
+            "ffmpeg", "-i", str(norm_video), "-y",
+            "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            str(norm_audio),
+        ])
         has_speech = _detect_speech(norm_audio)
     else:
         norm_audio.write_bytes(b"")
@@ -73,9 +75,8 @@ async def download_and_normalize(
     await progress_cb(50, "processing", "Audio extracted")
 
     # Get duration
-    fmt_result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(norm_video)],
-        capture_output=True, text=True, check=True,
+    fmt_result = _run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(norm_video)]
     )
     duration_sec = float(json.loads(fmt_result.stdout)["format"]["duration"])
 
@@ -84,25 +85,20 @@ async def download_and_normalize(
 
 
 def _detect_speech(audio_path: Path) -> bool:
-    """Heuristic: check if audio has significant energy (proxy for speech/content)."""
+    """Heuristic: check if audio has a recognizable stream (proxy for audio content)."""
     try:
         result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet", "-print_format", "json",
-                "-show_streams", "-select_streams", "a:0",
-                str(audio_path),
-            ],
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", "-select_streams", "a:0", str(audio_path)],
             capture_output=True, text=True,
         )
-        data = json.loads(result.stdout)
-        streams = data.get("streams", [])
-        return len(streams) > 0
+        return len(json.loads(result.stdout).get("streams", [])) > 0
     except Exception:
         return False
 
 
 def compute_chunks(duration_sec: float, window: int = 90, overlap: int = 10) -> list[tuple[float, float]]:
-    chunks = []
+    chunks: list[tuple[float, float]] = []
     start = 0.0
     while start < duration_sec:
         end = min(start + window, duration_sec)

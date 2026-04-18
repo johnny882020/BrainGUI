@@ -31,8 +31,8 @@ class Job(Base):
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     duration_sec: Mapped[float | None] = mapped_column(Float)
     vertex_blob_key: Mapped[str | None] = mapped_column(String(256))
-    has_audio: Mapped[bool] = mapped_column(default=True)
-    has_speech: Mapped[bool] = mapped_column(default=True)
+    has_audio: Mapped[bool] = mapped_column(default=True, nullable=False)
+    has_speech: Mapped[bool] = mapped_column(default=True, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

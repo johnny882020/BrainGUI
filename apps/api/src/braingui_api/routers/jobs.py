@@ -1,4 +1,4 @@
-import asyncio
+import json
 import secrets
 from collections.abc import AsyncGenerator
 
@@ -24,7 +24,7 @@ def _job_to_response(job: Job) -> JobResponse:
         status=job.status,
         progressPct=job.progress_pct,
         durationSec=job.duration_sec,
-        vertexBlobUrl=None,
+        vertexBlobUrl=job.vertex_blob_key,
         hasAudio=job.has_audio,
         hasSpeech=job.has_speech,
         errorMessage=job.error_message,
@@ -89,7 +89,6 @@ async def stream_job(job_id: str, request: Request) -> StreamingResponse:
                         data = data.decode()
                     yield f"data: {data}\n\n"
                     # Stop after 'complete' or 'failed'
-                    import json
                     try:
                         parsed = json.loads(data)
                         if parsed.get("status") in ("complete", "failed"):

@@ -74,7 +74,7 @@ For a 10-minute video: `600 × 20484 × 2 ≈ 24 MB`. The frontend decodes this 
 ### Prerequisites
 
 - Node.js 22+ and [pnpm](https://pnpm.io) 9+
-- Python 3.11+, [Poetry](https://python-poetry.org)
+- Python 3.11+
 - Docker (for local PostgreSQL + Redis)
 - `ffmpeg` installed on your system
 
@@ -83,7 +83,7 @@ For a 10-minute video: `600 × 20484 × 2 ≈ 24 MB`. The frontend decodes this 
 ```bash
 git clone https://github.com/johnny882020/BrainGUI.git
 cd BrainGUI
-pnpm install
+pnpm install --no-frozen-lockfile
 ```
 
 ### 2. Start local services
@@ -99,12 +99,12 @@ cp .env.example apps/api/.env
 # Fill in R2 credentials and HF Space URL
 ```
 
-### 4. Run database migrations
+### 4. Install backend dependencies and run migrations
 
 ```bash
 cd apps/api
-poetry install
-poetry run alembic upgrade head
+pip install -r requirements.txt
+alembic upgrade head
 cd ../..
 ```
 
@@ -115,7 +115,7 @@ cd ../..
 pnpm dev
 
 # ARQ worker (separate terminal):
-cd apps/api && poetry run arq braingui_api.worker.tasks.WorkerSettings
+cd apps/api && python -m arq braingui_api.worker.tasks.WorkerSettings
 ```
 
 ### 6. Deploy the HF Inference Space

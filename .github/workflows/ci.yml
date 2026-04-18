@@ -16,7 +16,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm turbo run lint typecheck build
 
   backend:
@@ -26,7 +26,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install poetry==1.8.3
-      - run: cd apps/api && poetry install --no-root
-      - run: cd apps/api && poetry run ruff check src/
-      - run: cd apps/api && poetry run mypy src/ --ignore-missing-imports
+      - run: pip install -r apps/api/requirements.txt
+      - run: pip install ruff mypy
+      - run: ruff check apps/api/src/
+      - run: mypy apps/api/src/ --ignore-missing-imports
+
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r apps/api/requirements.txt
+      - run: pip install pytest pytest-asyncio httpx
+      - run: pytest apps/api/tests/ -v

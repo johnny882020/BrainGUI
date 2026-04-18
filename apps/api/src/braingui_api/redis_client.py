@@ -4,14 +4,14 @@ import redis.asyncio as aioredis
 
 from .config import settings
 
-_pool: aioredis.ConnectionPool | None = None
+_redis: aioredis.Redis | None = None
 
 
 def get_redis() -> aioredis.Redis:
-    global _pool
-    if _pool is None:
-        _pool = aioredis.ConnectionPool.from_url(settings.redis_url)
-    return aioredis.Redis(connection_pool=_pool)
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(settings.redis_url, decode_responses=False)
+    return _redis
 
 
 async def publish_progress(job_id: str, pct: int, status: str, message: str) -> None:

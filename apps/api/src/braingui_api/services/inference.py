@@ -1,7 +1,11 @@
 import asyncio
+import base64
 import json
 
+import numpy as np
+
 from ..config import settings
+from .stitch import N_VERTICES
 
 _client = None
 
@@ -22,14 +26,12 @@ async def run_tribe_inference(
     start_sec: float,
     end_sec: float,
 ) -> dict:
-    """Call HF Space predict_chunk endpoint, return dict with vertex_data numpy array."""
-    import numpy as np
-
+    """Call HF Space predict_chunk endpoint, return dict with vertex_data list."""
     loop = asyncio.get_event_loop()
 
-    def _call():
+    def _call() -> str:
         client = _get_gradio_client()
-        result_json = client.predict(
+        return client.predict(  # type: ignore[no-any-return]
             video_key,
             audio_key,
             chunk_index,
@@ -37,15 +39,12 @@ async def run_tribe_inference(
             end_sec,
             api_name="/predict_chunk",
         )
-        return result_json
 
     result_json = await loop.run_in_executor(None, _call)
     result = json.loads(result_json)
 
-    # Decode base64 float16 → numpy float32
-    import base64
     raw = base64.b64decode(result["vertex_data_b64"])
-    arr = np.frombuffer(raw, dtype=np.float16).astype(np.float32).reshape(-1, 20484)
+    arr = np.frombuffer(raw, dtype=np.float16).astype(np.float32).reshape(-1, N_VERTICES)
 
     return {
         "chunk_index": result["chunk_index"],
