@@ -115,7 +115,9 @@ async def stream_job(job_id: str, request: Request) -> StreamingResponse:
 
 
 @router.get("/{job_id}/vertex-url", response_model=VertexUrlResponse)
-async def get_vertex_url(job_id: str, session: AsyncSession = Depends(get_session)) -> VertexUrlResponse:
+async def get_vertex_url(
+    job_id: str, session: AsyncSession = Depends(get_session)
+) -> VertexUrlResponse:
     job = await session.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
