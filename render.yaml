@@ -1,0 +1,116 @@
+services:
+  # ── API Web Service ─────────────────────────────────────────────────────────
+  - type: web
+    name: braingui-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: starter
+    region: oregon
+    autoDeploy: true
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: braingui-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: braingui-redis
+          property: connectionString
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: braingui
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      - key: HF_SPACE_URL
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: '["https://braingui.app","https://www.braingui.app"]'
+
+  # ── ARQ Worker ───────────────────────────────────────────────────────────────
+  - type: worker
+    name: braingui-worker
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: starter
+    region: oregon
+    autoDeploy: true
+    startCommand: python -m arq braingui_api.worker.tasks.WorkerSettings
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: braingui-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: braingui-redis
+          property: connectionString
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: braingui
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      - key: HF_SPACE_URL
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+
+  # ── Frontend Static Site ─────────────────────────────────────────────────────
+  - type: web
+    name: braingui-web
+    runtime: static
+    buildCommand: npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm turbo run build --filter=@braingui/web
+    staticPublishPath: ./apps/web/dist
+    autoDeploy: true
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+    routes:
+      - type: rewrite
+        source: /j/*
+        destination: /index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE
+        fromService:
+          type: web
+          name: braingui-api
+          property: url
+
+databases:
+  - name: braingui-db
+    plan: starter
+    region: oregon
+    databaseName: braingui
+    user: braingui
+
+  - type: redis
+    name: braingui-redis
+    plan: starter
+    region: oregon
+    maxmemoryPolicy: noeviction

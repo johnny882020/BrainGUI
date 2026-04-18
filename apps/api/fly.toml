@@ -1,0 +1,25 @@
+app = "braingui-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[processes]]
+  name = "web"
+  cmd = "uvicorn braingui_api.main:app --host 0.0.0.0 --port 8000"
+
+[[processes]]
+  name = "worker"
+  cmd = "python -m arq braingui_api.worker.tasks.WorkerSettings"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
