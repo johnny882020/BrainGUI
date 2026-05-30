@@ -1,49 +1,71 @@
 name: CI
+
 on:
-  pull_request:
   push:
+    branches: [main, "claude/**"]
+  pull_request:
     branches: [main]
 
 jobs:
-  frontend:
+  api-lint:
+    name: API lint & typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m ruff check src/
+      - run: python -m mypy src/ --ignore-missing-imports
+
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - run: pip install -r requirements.txt aiosqlite pytest-asyncio httpx
+      - run: pip install -e .
+      - run: python -m pytest tests/ -v
+
+  mobile-typecheck:
+    name: Mobile typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: pnpm/action-setup@v4
         with:
           version: 9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @brainlink/types typecheck
+      - run: pnpm --filter @brainlink/mobile typecheck
+
+  mobile-tests:
+    name: Mobile unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          cache: "pnpm"
-      - run: pnpm install --no-frozen-lockfile
-      - run: pnpm turbo run lint typecheck build
-
-  backend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
         with:
-          python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: pip install ruff mypy
-      - run: ruff check src/
-      - run: mypy src/ --ignore-missing-imports
-
-  backend-tests:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: pip install pytest pytest-asyncio httpx
-      - run: pytest tests/ -v
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @brainlink/mobile test -- --ci

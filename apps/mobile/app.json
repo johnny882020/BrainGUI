@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "BrainLink",
+    "slug": "brainlink",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "brainlink",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.brainlink.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to track facial expressions for mental state inference. All processing is on-device.",
+        "NSMicrophoneUsageDescription": "Used to analyse breathing patterns. Audio is never transmitted or stored.",
+        "NSMotionUsageDescription": "Used to detect head/hand gestures for intent control."
+      }
+    },
+    "android": {
+      "package": "com.brainlink.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "BODY_SENSORS"
+      ]
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-av",
+      ["expo-sensors", { "motionPermission": "Used to detect gestures for intent control." }]
+    ]
+  }
+}

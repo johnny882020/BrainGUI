@@ -1,9 +1,0 @@
-gradio>=5.9.1
-spaces
-boto3
-numpy
-torch
-# tribev2 installed from HF hub or pip once publicly available:
-# tribev2
-# Until public release, install from source:
-# git+https://github.com/facebookresearch/tribev2.git

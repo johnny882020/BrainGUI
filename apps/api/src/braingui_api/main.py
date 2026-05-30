@@ -1,79 +1,69 @@
-import logging
-import logging.config
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-from .config import settings
-from .database import init_db
-from .routers import health, jobs
-
-_LOGGING: dict = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "default": {
-            "format": "%(asctime)s %(levelname)-8s %(name)s  %(message)s",
-            "datefmt": "%Y-%m-%dT%H:%M:%S",
-        },
-    },
-    "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "default"},
-    },
-    "root": {"level": "INFO", "handlers": ["console"]},
-    "loggers": {
-        "uvicorn": {"propagate": True},
-        "sqlalchemy.engine": {"level": "WARNING", "propagate": True},
-    },
-}
-
-log = logging.getLogger(__name__)
-
-# Compiled React frontend (present when built via root Dockerfile)
-_WEB_DIST = Path("/app/web/dist")
+from .config import get_settings
+from .database import Base, engine
+from .middleware.logging import RequestLoggingMiddleware
+from .middleware.rate_limit import limiter
+from .redis_client import close_redis
+from .routers import auth, channels
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    logging.config.dictConfig(_LOGGING)
-    await init_db()
-    log.info(
-        "BrainGUI API starting (db=%s frontend=%s)",
-        settings.database_url.split("://")[0],
-        _WEB_DIST.exists(),
-    )
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
-    log.info("BrainGUI API shutting down")
-    from .redis_client import close_redis
     await close_redis()
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+
     app = FastAPI(
-        title="BrainGUI API",
+        title="BrainLink API",
         version="0.1.0",
+        docs_url="/docs" if settings.app_env == "development" else None,
+        redoc_url=None,
         lifespan=lifespan,
     )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        # Allow any *.onrender.com preview/staging domain
-        allow_origin_regex=r"https://[a-zA-Z0-9\-]+\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=["Authorization", "Content-Type"],
     )
-    app.include_router(health.router, prefix="/api/v1")
-    app.include_router(jobs.router, prefix="/api/v1")
+    app.add_middleware(RequestLoggingMiddleware)
 
-    # Serve React SPA when frontend is bundled into the Docker image.
-    # API routes above take priority; StaticFiles catches everything else.
-    if _WEB_DIST.exists():
-        app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="static")
+    app.include_router(auth.router)
+    app.include_router(channels.router)
+
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+    @app.get("/api/v1/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.get("/api/v1/ready")
+    async def ready():
+        from .redis_client import get_redis
+        try:
+            redis = get_redis()
+            await redis.ping()
+            redis_ok = True
+        except Exception:
+            redis_ok = False
+        return {"redis": "ok" if redis_ok else "error"}
 
     return app
 

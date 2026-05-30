@@ -1,13 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "declaration": true,
-    "declarationMap": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "declaration": true,
     "skipLibCheck": true
   },
   "include": ["src"]

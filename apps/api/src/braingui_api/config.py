@@ -1,3 +1,6 @@
+import base64
+from functools import lru_cache
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -5,37 +8,39 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Database — defaults to SQLite so the app starts without any external DB setup.
-    # Set DATABASE_URL=postgres://... (Render) or postgresql+asyncpg://... (local) for PostgreSQL.
-    database_url: str = "sqlite+aiosqlite:///./braingui.db"
+    database_url: str = "sqlite+aiosqlite:///./brainlink.db"
+    redis_url: str = "redis://localhost:6379/0"
 
-    # Redis
-    redis_url: str = "redis://localhost:6379"
+    jwt_private_key_b64: str = ""
+    jwt_public_key_b64: str = ""
+    jwt_algorithm: str = "RS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
 
-    # Cloudflare R2 / S3
-    r2_endpoint_url: str = ""
-    r2_access_key_id: str = ""
-    r2_secret_access_key: str = ""
-    r2_bucket_name: str = "braingui"
-    r2_public_base_url: str = ""
-
-    # Hugging Face Space
-    hf_space_url: str = ""
-    hf_token: str = ""
-
-    # App
-    app_base_url: str = "http://localhost:8000"
-    cors_origins: list[str] = ["http://localhost:5173", "https://braingui.app"]
+    cors_origins: list[str] = ["http://localhost:8081", "exp://localhost:8081"]
+    app_env: str = "development"
 
     @field_validator("database_url", mode="before")
     @classmethod
-    def _fix_db_url(cls, v: str) -> str:
-        """Rewrite Render's postgres:// scheme to the asyncpg driver string."""
-        if v.startswith("postgres://"):
+    def rewrite_postgres_scheme(cls, v: str) -> str:
+        # Render/Heroku supply postgres:// but asyncpg needs postgresql+asyncpg://
+        if isinstance(v, str) and v.startswith("postgres://"):
             return v.replace("postgres://", "postgresql+asyncpg://", 1)
-        if v.startswith("postgresql://") and "+asyncpg" not in v:
-            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
+    @property
+    def jwt_private_key(self) -> str:
+        if not self.jwt_private_key_b64:
+            return ""
+        return base64.b64decode(self.jwt_private_key_b64).decode()
 
-settings = Settings()
+    @property
+    def jwt_public_key(self) -> str:
+        if not self.jwt_public_key_b64:
+            return ""
+        return base64.b64decode(self.jwt_public_key_b64).decode()
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

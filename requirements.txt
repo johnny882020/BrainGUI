@@ -1,2 +1,0 @@
--r apps/api/requirements.txt
--e apps/api/

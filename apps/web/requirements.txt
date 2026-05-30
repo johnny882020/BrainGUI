@@ -1,2 +1,0 @@
-# No Python dependencies — this is a Node.js/React frontend.
-# File exists to prevent build systems from failing Python auto-detection.

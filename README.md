@@ -1,314 +1,85 @@
-# BrainGUI
+# BrainLink
 
-**Predict and visualise how a human cortex responds to any video — powered by Meta TRIBE v2.**
+Non-invasive, unidirectional brain-machine interface using only your phone's built-in sensors.
 
-Paste a YouTube URL and watch a 3D brain surface animate frame-by-frame in sync with playback, showing predicted BOLD fMRI activity across 20,484 cortical vertices. Click any region to inspect its full activation timeseries and jump to the exact video moments that drove it.
+Your brain controls the environment — the environment never stimulates back.
 
-> **Transparency notice:** BrainGUI displays *predictions* of group-averaged fMRI responses — not your brain and not real-time neural activity. Predictions are produced by [Meta TRIBE v2](https://huggingface.co/facebook/tribev2) (CC-BY-NC-4.0).
+## How it works
 
----
+BrainLink reads four sensor streams on your phone to infer your mental state and intent:
 
-## Features
+| Sensor | What it measures | Output |
+|---|---|---|
+| Front camera | Facial landmarks, blink rate, gaze | Mental state (focused / relaxed / excited / stressed / neutral) |
+| Microphone | Breathing rhythm, vocal energy | Arousal & valence |
+| Accelerometer / Gyroscope | Head & hand gestures | Motor intent (confirm / reject / left / right) |
+| Touch screen | Tap rhythm, error rate | Cognitive load |
 
-| Feature | Detail |
-|---|---|
-| **Synchronized playback** | Brain and video play in lock-step. Hemodynamic lag (+5 s) is corrected by default; a toggle exposes the scientifically literal delay. |
-| **3D cortical surface** | WebGL rendering via [Niivue](https://niivue.com), fsaverage5 mesh, both hemispheres — rotatable, zoomable. |
-| **HCP Glasser atlas** | 360-parcel multi-modal parcellation overlaid on the brain. Active regions (top 10th percentile) surface as labelled cards with plain-English descriptions. |
-| **Bidirectional timeline** | Scrub the timeline to jump the brain — or click a parcel to see its full-video timeseries and seek to activation peaks. |
-| **Shareable URLs** | Every job gets a permanent URL (`/j/:jobId`). Close the tab, come back when processing finishes. |
-| **Honesty layer** | Onboarding card, persistent canvas label, and per-video domain warnings when audio or speech is absent. |
+All sensor processing runs **on-device**. Raw camera frames, audio, and motion data never leave your phone. Only classified labels (e.g. "focused", "confirm") are transmitted to peers, and those are **end-to-end encrypted** with NaCl box (X25519 + XSalsa20-Poly1305).
 
----
+## Output channels
+
+1. **UI adaptation** — the app's theme and layout adjust in real-time to your mental state
+2. **Peer communication** — broadcast your mental context to paired users via an encrypted channel
+3. **IoT triggers** (coming soon) — control smart home devices from intent events
+
+## Setup
+
+### Prerequisites
+- Node 22, pnpm 9
+- Python 3.11
+- Docker & docker-compose (for local API + Redis/Postgres)
+- Expo Go app on your iOS or Android device
+
+### Quick start
+
+```bash
+# Start infra
+docker compose -f infra/docker-compose.yml up -d
+
+# Install dependencies
+pnpm install
+
+# Start API
+cd apps/api && pip install -r requirements.txt -e . && uvicorn braingui_api.main:app --reload
+
+# Start mobile (in a second terminal)
+pnpm --filter @brainlink/mobile start
+```
+
+Configure your API URL in `apps/mobile/.env`:
+```
+EXPO_PUBLIC_API_URL=http://<your-local-ip>:8000
+EXPO_PUBLIC_WS_URL=ws://<your-local-ip>:8000
+```
+
+### Tests
+
+```bash
+# API
+cd apps/api && pytest tests/ -v
+
+# Mobile
+pnpm --filter @brainlink/mobile test
+```
+
+## Security
+
+- Passwords: bcrypt (cost 12)
+- Tokens: JWT RS256, 15 min access / 7 day rotating refresh
+- Biometric data: never persisted or transmitted
+- Thought packets: E2E encrypted, server sees only ciphertext
+- Rate limiting: 5 req/min registration, 100 req/min general
+- Secrets: environment variables only
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Browser                                                          │
-│  React 18 · Vite · TypeScript · Niivue (WebGL) · Zustand         │
-│  Recharts · Tailwind CSS v4 · React Router                       │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │  REST + SSE  (same-origin)
-┌────────────────────────────▼─────────────────────────────────────┐
-│  Single Docker container  (braingui-api on Render)                │
-│  ┌──────────────────────────────────────────────────────────┐    │
-│  │  FastAPI · SQLAlchemy async · Alembic · PostgreSQL 16    │    │
-│  │  Serves React SPA at / via StaticFiles(html=True)        │    │
-│  └──────────────────────────────────────────────────────────┘    │
-│  Pipeline: yt-dlp → ffmpeg → Cloudflare R2                        │
-│           → chunk (90 s / 10 s overlap)                           │
-│           → HF Space inference                                    │
-│           → stitch (raised-cosine crossfade) → z-score            │
-│           → float16 .bin → R2 → SSE notify                        │
-│                                                                   │
-│  ARQ Worker (braingui-worker) — same Docker image, Redis queue    │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │  gradio_client
-┌────────────────────────────▼─────────────────────────────────────┐
-│  HF ZeroGPU Space  (TRIBE v2 · @spaces.GPU · Gradio 5)           │
-│  R2 video/audio keys in → base64 float16 predictions out         │
-└──────────────────────────────────────────────────────────────────┘
+apps/
+  api/        FastAPI relay + auth (Python 3.11)
+  mobile/     React Native + Expo (TypeScript)
+packages/
+  types/      Shared TypeScript types
+infra/
+  docker-compose.yml  PostgreSQL + Redis for local dev
 ```
-
-The root `Dockerfile` is a **multi-stage build**: Stage 1 (Node 22) compiles the React frontend via `pnpm turbo`; Stage 2 (Python 3.11-slim) installs the API, copies the compiled `dist/` into `/app/web/dist`, and starts uvicorn. The API serves the SPA at `/` via FastAPI `StaticFiles(html=True)` — API routes registered before the mount take priority.
-
-### Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 18, TypeScript, Vite 6, Tailwind CSS v4, Niivue 0.47, Zustand 5, Recharts |
-| Backend | FastAPI 0.115, SQLAlchemy 2 (async), Alembic, ARQ, boto3 (Cloudflare R2) |
-| Inference | Meta TRIBE v2 on Hugging Face ZeroGPU (Gradio 5) |
-| Storage | Cloudflare R2 — normalized videos and vertex timeseries blobs |
-| Database | PostgreSQL 16 |
-| Queue | Redis 7 (ARQ) |
-| Deploy | Render Blueprint — API+SPA Docker web service, ARQ Docker worker, optional static site |
-
----
-
-## Repository Structure
-
-```
-BrainGUI/
-├── Dockerfile                            # Multi-stage: Node → Python, embeds SPA in API image
-├── apps/
-│   ├── api/                              # FastAPI backend
-│   │   ├── src/braingui_api/
-│   │   │   ├── main.py                   # FastAPI app factory + lifespan + SPA mount
-│   │   │   ├── config.py                 # Pydantic Settings
-│   │   │   ├── database.py               # SQLAlchemy async engine + pool
-│   │   │   ├── redis_client.py           # Redis pub/sub helpers
-│   │   │   ├── storage.py                # R2 upload + presigned URLs
-│   │   │   ├── __main__.py               # `braingui` entry point (uvicorn)
-│   │   │   ├── models/job.py             # Job ORM + JobStatus StrEnum
-│   │   │   ├── routers/
-│   │   │   │   ├── health.py             # GET /api/v1/health
-│   │   │   │   └── jobs.py               # CRUD + SSE stream + vertex URL
-│   │   │   ├── schemas/job.py            # Pydantic request/response models
-│   │   │   ├── services/
-│   │   │   │   ├── ingest.py             # yt-dlp + ffmpeg pipeline
-│   │   │   │   ├── inference.py          # gradio_client HF Space wrapper
-│   │   │   │   └── stitch.py             # crossfade + z-score + .bin writer
-│   │   │   └── worker/tasks.py           # ARQ background task
-│   │   ├── tests/
-│   │   │   ├── test_api.py               # 6 API integration tests
-│   │   │   └── test_stitch.py            # 14 stitch/chunk unit tests
-│   │   ├── alembic/                      # DB migrations (auto-run on deploy)
-│   │   ├── requirements.txt              # Pinned Python deps (includes aiofiles)
-│   │   ├── Dockerfile                    # API-only image (local dev / workers)
-│   │   └── alembic.ini
-│   └── web/                              # React frontend
-│       ├── src/
-│       │   ├── components/
-│       │   │   ├── brain/                # Niivue canvas + useNiivue hook
-│       │   │   ├── layout/               # AppShell, TopBar, panes, ViewerPage
-│       │   │   ├── timeline/             # Scrubber + RegionChart
-│       │   │   ├── parcels/              # ParcelPanel (HCP atlas labels)
-│       │   │   ├── video/                # VideoPlayer sync
-│       │   │   └── ui/                   # LandingPage, forms, processing screen
-│       │   ├── hooks/
-│       │   │   ├── useJobSSE.ts          # SSE subscription → jobStore
-│       │   │   └── useVertexData.ts      # Fetch + decode .bin → brainStore
-│       │   ├── stores/                   # Zustand: playback, brain, job
-│       │   └── lib/
-│       │       ├── api.ts                # Typed fetch client (AbortSignal)
-│       │       ├── constants.ts          # N_VERTICES, chunk sizes, hem. offset
-│       │       ├── decodeFloat16.ts      # Float16 binary decoder
-│       │       └── parcels.ts            # HCP Glasser parcel definitions
-│       └── public/assets/               # fsaverage5 lh/rh .surf.gii meshes
-├── packages/
-│   └── types/src/index.ts               # Shared TS types (Job, SSEProgressEvent…)
-├── spaces/
-│   └── tribe-inference/                 # HF ZeroGPU Space
-│       ├── app.py                        # Gradio endpoint + @spaces.GPU
-│       ├── utils.py                      # R2 download, ffmpeg trim, base64 encode
-│       └── test_utils.py                 # 3 utility unit tests
-├── infra/
-│   └── docker-compose.yml               # Local PostgreSQL 16 + Redis 7
-├── .github/workflows/ci.yml             # Three-job CI pipeline
-├── render.yaml                          # Render Blueprint (3 services)
-├── .python-version                      # 3.11.11 (pyenv / Render)
-├── requirements.txt                     # Root: installs API deps for local dev
-├── pnpm-workspace.yaml
-├── turbo.json
-├── .nvmrc                               # Node.js 22
-└── .env.example
-```
-
----
-
-## Binary Wire Format
-
-Vertex timeseries stored as a compact binary blob in Cloudflare R2:
-
-```
-[ uint32 T_total ][ uint32 n_vertices=20484 ][ T × 20484 × float16  (row-major) ]
-←────── 8 bytes ──────→←────────────── T × 40,968 bytes ──────────────────────→
-```
-
-For a 10-minute video: `600 × 20484 × 2 ≈ 24 MB`. The frontend decodes with the native `Float16Array` (Chrome 121+) or a pure-JS fallback for older engines, then slices one frame per animation tick.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 22+ and [pnpm](https://pnpm.io) 9+
-- Python 3.11+
-- Docker (for local PostgreSQL + Redis)
-- `ffmpeg` installed system-wide
-
-### 1 — Clone and install
-
-```bash
-git clone https://github.com/johnny882020/BrainGUI.git
-cd BrainGUI
-pnpm install --no-frozen-lockfile        # JS workspaces
-pip install -r requirements.txt          # API deps + braingui entry point
-```
-
-### 2 — Start infrastructure
-
-```bash
-docker compose -f infra/docker-compose.yml up -d
-```
-
-### 3 — Configure environment
-
-```bash
-cp .env.example apps/api/.env
-# Fill in: DATABASE_URL, REDIS_URL, R2_*, HF_SPACE_URL, HF_TOKEN, APP_BASE_URL
-```
-
-### 4 — Run migrations
-
-```bash
-cd apps/api && alembic upgrade head && cd ../..
-```
-
-### 5 — Start development servers
-
-```bash
-pnpm dev                        # frontend :5173 + backend :8000 in parallel
-
-# Separate terminal — ARQ worker:
-cd apps/api && python -m arq braingui_api.worker.tasks.WorkerSettings
-```
-
-### 6 — Deploy the HF Inference Space
-
-Push `spaces/tribe-inference/` to a Hugging Face Space with `hardware: zero-gpu`. Set these Space Secrets (see `spaces/tribe-inference/README.md`):
-
-```
-R2_ENDPOINT_URL  R2_ACCESS_KEY_ID  R2_SECRET_ACCESS_KEY  R2_BUCKET_NAME
-```
-
----
-
-## Running Tests
-
-```bash
-# Backend — 20 unit + integration tests
-cd apps/api && python -m pytest tests/ -v
-
-# HF Space utilities — 3 tests (no GPU required)
-cd spaces/tribe-inference && python -m pytest test_utils.py -v
-
-# Frontend build (verifies TypeScript + Vite)
-pnpm turbo run build --filter=@braingui/web
-```
-
----
-
-## CI / CD
-
-### GitHub Actions (`.github/workflows/ci.yml`)
-
-Three jobs run in parallel on every push to `main` and every pull request:
-
-| Job | Steps |
-|---|---|
-| **frontend** | pnpm install → `turbo run lint typecheck build` (builds `@braingui/types` first via `dependsOn`) |
-| **backend** | pip install → `ruff check src/` → `mypy src/` |
-| **backend-tests** | pip install → `pytest tests/ -v` (20 tests) |
-
-### Render Blueprint (`render.yaml`)
-
-Three services, all with `autoDeploy: true`:
-
-| Service | Type | Dockerfile | Start command | Notes |
-|---|---|---|---|---|
-| `braingui-api` | Docker web service | `./Dockerfile` (repo root) | `uvicorn braingui_api.main:app …` | Serves API + React SPA; `preDeployCommand: alembic upgrade head` runs migrations before each deploy |
-| `braingui-worker` | Docker worker | `./Dockerfile` (repo root) | `python -m arq braingui_api.worker.tasks.WorkerSettings` | Same image, different command |
-| `braingui-web` | Static site | pnpm + Turbo | CDN | Optional — useful for PR preview deployments; the API already serves the SPA |
-
-**First-time deployment:**
-
-1. Render dashboard → **New → Blueprint Instance**
-2. Connect `johnny882020/BrainGUI`, branch `main`
-3. Add secrets: `R2_*`, `HF_SPACE_URL`, `HF_TOKEN`, `APP_BASE_URL`
-4. Render runs `alembic upgrade head` automatically before the first (and every subsequent) deploy
-
----
-
-## Deployment Checklist
-
-- [ ] Render PostgreSQL 16 database provisioned
-- [ ] Render Redis 7 (noeviction) provisioned
-- [ ] `DATABASE_URL` and `REDIS_URL` set on `braingui-api` and `braingui-worker`
-- [ ] `R2_ENDPOINT_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL` set on both services
-- [ ] `HF_SPACE_URL` and `HF_TOKEN` set on `braingui-worker`
-- [ ] `APP_BASE_URL` set to your Render web URL (e.g. `https://braingui-api.onrender.com`)
-- [ ] HF Space deployed to ZeroGPU hardware with R2 secrets set
-- [ ] Render Blueprint instance created from `main` branch (migrations run automatically via `preDeployCommand`)
-
----
-
-## Environment Variables
-
-| Variable | Service | Description |
-|---|---|---|
-| `DATABASE_URL` | api, worker | `postgresql+asyncpg://...` (Render injects `postgres://`; env.py rewrites automatically) |
-| `REDIS_URL` | api, worker | `redis://...` |
-| `R2_ENDPOINT_URL` | api, worker | Cloudflare R2 endpoint |
-| `R2_ACCESS_KEY_ID` | api, worker | R2 access key |
-| `R2_SECRET_ACCESS_KEY` | api, worker | R2 secret key |
-| `R2_BUCKET_NAME` | api, worker | Default: `braingui` |
-| `R2_PUBLIC_BASE_URL` | api, worker | Public CDN base URL for direct asset links |
-| `HF_SPACE_URL` | worker | Hugging Face Space URL |
-| `HF_TOKEN` | worker | HF API token |
-| `APP_BASE_URL` | api | Used to construct shareable job URLs |
-| `CORS_ORIGINS` | api | JSON array of allowed origins (e.g. `["https://braingui.app"]`). `*.onrender.com` is always allowed via regex. |
-| `VITE_API_BASE` | web (build) | API base URL injected at build time. Leave empty when frontend is bundled in the API image (same-origin). |
-
----
-
-## Scientific Notes
-
-- **Model:** `facebook/tribev2` (CC-BY-NC-4.0). Non-commercial use only.
-- **Output:** `(T, 20484)` predicted BOLD at 1 Hz for fsaverage5 cortical vertices.
-- **Subject mode:** Group-averaged unseen-subject prediction — represents a statistical average, not any individual.
-- **Hemodynamic delay:** BOLD peaks ≈5 s after stimulus onset. The default display corrects for this. Toggle "Show real hemodynamic delay" for the literal view.
-- **Domain:** Trained on naturalistic movies and podcasts. Out-of-distribution content produces weaker predictions; a banner warns when audio/speech is absent.
-- **Atlas:** HCP Glasser 360-parcel multi-modal parcellation (Glasser et al., 2016, *Nature*).
-- **Chunking:** 90-second windows with 10-second overlap; raised-cosine crossfade on boundaries; z-scored per-video before writing to `.bin`.
-
----
-
-## Roadmap
-
-- **V1 (current):** Core viewer — synchronized playback, Glasser atlas labels, bidirectional timeline, shareable URLs, honesty layer.
-- **V2:** Modality attribution overlay (RGB per-vertex: text / audio / visual contribution). Functional network overlays.
-- **V3:** In-silico experiment builder — GLM contrast maps between two user-defined video conditions.
-
----
-
-## License
-
-| Component | License |
-|---|---|
-| Application code | MIT |
-| TRIBE v2 model weights | CC-BY-NC-4.0 (Meta) — non-commercial use only |
-| HCP Glasser Atlas | Academic license (Glasser et al. 2016) |
